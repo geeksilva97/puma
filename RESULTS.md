@@ -78,9 +78,9 @@ For each variant:
 | variant | RPS | p50 (ms) | p99 (ms) | p99.9 (ms) | idle RSS | mid-load RSS | KiB / RPS |
 |---------|----:|---------:|---------:|-----------:|---------:|-------------:|----------:|
 | **A. RactorPool**         | **6,561** |  7 | 17 |  52 |  39 MiB |  48 MiB |  7.5 |
-| **B. Cluster (14×5)**     | **7,514** |  6 | 10 |  38 | 266 MiB | 688 MiB | 93.7 |
+| **B. Cluster (14×5)**     | **7,514** |  6 | 10 |  38 | 260 MiB | 672 MiB | 91.6 |
 | **C. Single threaded**    | **1,267** | 39 | 43 |  53 |  35 MiB |  54 MiB | 43.6 |
-| **D. Cluster (8×5, Speedshop)** | **5,310** |  9 | 11 |  46 | 172 MiB | 401 MiB | 75.5 |
+| **D. Cluster (8×5, Speedshop)** | **5,310** |  9 | 13 |  46 | 163 MiB | 392 MiB | 75.6 |
 
 Failed requests: 0 across all 12 runs. Per-run numbers are in
 `bench_out/{ractor_pool,cluster,cluster_nate,single_threaded}.run{1,2,3}.summary.txt`.
@@ -113,12 +113,12 @@ full table):
 | variant | I/O-bound RPS | realistic RPS |
 |---------|--------------:|--------------:|
 | A. RactorPool      |   642 |  6,561 |
-| C. Single threaded |   575 |  1,267 |
-| ratio (A / C)      | 1.12× |  5.2×  |
+| C. Single threaded |   581 |  1,267 |
+| ratio (A / C)      | 1.10× |  5.2×  |
 
 `sleep` releases the GVL, so threads-in-one-process parallelize at
 the OS scheduler level just like Ractors do. The gap collapses from
-5.2× to 1.12×. **The Ractor win is the GVL win**; on workloads
+5.2× to 1.10×. **The Ractor win is the GVL win**; on workloads
 where the GVL is not the bottleneck, there is no Ractor win to be
 had.
 
@@ -133,28 +133,28 @@ threads.
 
 ```
 A (RactorPool, 1 proc × 14 Ractors)    6,561 RPS,  48 MiB peak
-D (Cluster,    8 procs × 5 threads)    5,310 RPS, 401 MiB peak
+D (Cluster,    8 procs × 5 threads)    5,310 RPS, 392 MiB peak
                                        ────────────────────────
 A delivers 1.24× D's RPS at ~1/8 the RSS.
 ```
 
 Per-RPS memory cost on a slide:
-**7.5 KiB/RPS for RactorPool vs 75.5 KiB/RPS for the Speedshop
+**7.5 KiB/RPS for RactorPool vs 75.6 KiB/RPS for the Speedshop
 cluster** — RactorPool serves at ~1/10 the memory-per-throughput of
 the production-shaped baseline. On a 512 MiB container with the
 realistic app:
 
-- Cluster (8×5, Speedshop): 401 MiB — fits, but ~78% of the budget.
-- Cluster (14×5, max parallelism): 688 MiB — **does not fit**.
+- Cluster (8×5, Speedshop): 392 MiB — fits, but ~76% of the budget.
+- Cluster (14×5, max parallelism): 672 MiB — **does not fit**.
 - RactorPool: 48 MiB — fits 10× over.
 
 A vs B (the parallelism-parity cluster): cluster reaches 7,514 RPS
 at 14 workers, which is ~15% above RactorPool's 6,561 — but at
-**688 MiB, well past Speedshop's RAM budget for typical app
+**672 MiB, well past Speedshop's RAM budget for typical app
 servers**. That comparison is useful as a ceiling, not as a
 deployable shape.
 
-p99 favours both clusters over RactorPool (10–11 ms vs 17 ms), and
+p99 favours both clusters over RactorPool (10–13 ms vs 17 ms), and
 p99.9 favours them too (38–46 ms vs 52 ms). RactorPool's tail is
 wider, almost certainly because of the missing Reactor — every
 Ractor stalls on its own read instead of having a shared event
@@ -170,15 +170,15 @@ the GVL doesn't bottleneck.
 
 | variant | RPS | p50 (ms) | p99 (ms) | mid-load RSS |
 |---------|----:|---------:|---------:|-------------:|
-| **A. RactorPool**               |   642 | 85 |  92 |  41 MiB |
-| **B. Cluster (14×5)**           | 1,937 | 25 |  41 | 463 MiB |
-| **C. Single threaded (14×)**    |   575 | 86 | 103 |  42 MiB |
-| **D. Cluster (8×5, Speedshop)** | 1,676 | 28 |  49 | 282 MiB |
+| **A. RactorPool**               |   642 | 85 | 108 |  41 MiB |
+| **B. Cluster (14×5)**           | 1,911 | 25 |  45 | 452 MiB |
+| **C. Single threaded (14×)**    |   581 | 86 | 100 |  41 MiB |
+| **D. Cluster (8×5, Speedshop)** | 1,679 | 28 |  49 | 276 MiB |
 
-Single iteration each, 30k requests at 50 concurrency, 20 ms `sleep`.
-Per-run details in `bench_out/io_*.run1.summary.txt`.
+Median of 3 runs each, 30k requests at 50 concurrency, 20 ms `sleep`.
+Per-run details in `bench_out/io_*.run{1,2,3}.summary.txt`.
 
-**The GVL falsifier (A vs C):** 642 vs 575 RPS = **1.12×.** On the
+**The GVL falsifier (A vs C):** 642 vs 581 RPS = **1.10×.** On the
 realistic CPU-bound bench, the same comparison is **5.2×.** The
 collapse is the evidence: when the GVL is released during the I/O
 wait, ractor_pool and threads-in-one-process are equivalent. **The
@@ -186,7 +186,7 @@ Ractor win is specifically the GVL win**, not a generic
 "Ractors are faster" effect.
 
 **The cluster surprise (A vs D):** D delivers **2.6× RactorPool's
-RPS** on this workload (1,676 vs 642). The reason is concurrency-
+RPS** on this workload (1,679 vs 642). The reason is concurrency-
 per-worker: cluster has 8 procs × **5 threads each** = 40 concurrent
 execution units; RactorPool has 14 (one socket per Ractor,
 sequential within each Ractor). On I/O-bound work where 5 threads
@@ -222,16 +222,16 @@ If we re-run RactorPool with the unit count *paired to cluster's*:
 
 | pairing | concurrent units | RPS | p50 | mid-load RSS |
 |---------|----------------:|----:|----:|-------------:|
-| RactorPool, 70 Ractors  | 70 | **1,905** | 26 ms |  **50 MiB** |
-| B. Cluster (14×5)       | 70 | 1,937     | 25 ms |    463 MiB  |
-| RactorPool, 40 Ractors  | 40 | **1,781** | 26 ms |  **44 MiB** |
-| D. Cluster (8×5)        | 40 | 1,676     | 28 ms |    282 MiB  |
+| RactorPool, 70 Ractors  | 70 | **1,931** | 25 ms |  **49 MiB** |
+| B. Cluster (14×5)       | 70 | 1,911     | 25 ms |    452 MiB  |
+| RactorPool, 40 Ractors  | 40 | **1,767** | 26 ms |  **44 MiB** |
+| D. Cluster (8×5)        | 40 | 1,679     | 28 ms |    276 MiB  |
 
-Single iteration each, same 20 ms `sleep`, single-shot runs in
-`bench_out/io_ractor_pool.run{40,70}.summary.txt`.
+Median of 3 runs each, same 20 ms `sleep`. Per-run details in
+`bench_out/io_ractor_pool.run{40,70}_{1,2,3}.summary.txt`.
 
-At matched concurrency, **RactorPool ties B on RPS (98%) and beats
-D by 6%**, while still costing **6–9× less RSS** in both pairings.
+At matched concurrency, **RactorPool ties B on RPS (101%) and beats
+D by 5%**, while still costing **6–9× less RSS** in both pairings.
 The "cluster wins on I/O-bound" finding is real *only* under the
 core-count pinning; once you size RactorPool for the workload's
 concurrency budget the way Speedshop sizes cluster threads, the
@@ -246,7 +246,7 @@ same logic as Speedshop's 5-threads-per-worker rule, applied one
 layer down).
 
 This doesn't invalidate Q3's GVL-falsifier finding (A vs C at the
-same 14 units = 1.12×, equivalence holds). It does sharpen the
+same 14 units = 1.10×, equivalence holds). It does sharpen the
 deployment story: **RactorPool beats cluster on RPS-per-RSS on
 both workload classes, when sized for the workload.**
 
@@ -297,9 +297,18 @@ for v in ractor_pool cluster cluster_nate single_threaded; do
   done
 done
 
-# I/O-bound bench (single iteration; tunable via IO_WAIT_MS env).
+# I/O-bound bench: 3 runs per variant (tunable via IO_WAIT_MS env).
 for v in ractor_pool cluster cluster_nate single_threaded; do
-  ./poc_bench_io_bound.sh $v 1
+  for i in 1 2 3; do
+    ./poc_bench_io_bound.sh $v $i
+  done
+done
+
+# I/O-bound matched-concurrency: 3 runs each at 40 and 70 Ractors.
+for n in 40 70; do
+  for i in 1 2 3; do
+    RACTORS=$n ./poc_bench_io_bound.sh ractor_pool "${n}_${i}"
+  done
 done
 ```
 
