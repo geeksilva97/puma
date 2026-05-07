@@ -274,8 +274,14 @@ rise, if these were implemented:
   silently does the wrong thing. This is a PoC-only shortcut.
 - **The Rack-app constraint is the real wall.** The realistic app
   works because it only touches stdlib. A real Rails boot inside a
-  Ractor is currently not viable — see "The Rack-app problem"
-  section below.
+  Ractor is currently not viable: instantiating `Rails::Application`
+  in a non-main Ractor immediately raises
+  `Ractor::IsolationError` on `Rails::Railtie::ABSTRACT_RAILTIES`
+  ([rails/rails#51543](https://github.com/rails/rails/issues/51543),
+  closed). Same problem class as the `Rack::BUILDER_TOPLEVEL_BINDING`
+  wall this experiment had to work around — Rails just hits it one
+  framework layer up, and on a constant the experiment author
+  doesn't control.
 
 The takeaway for the talk: **the RPS gap (A vs C) is real; the RSS
 gap (A vs B) is real; the production-readiness gap is also real**.
