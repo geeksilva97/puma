@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Three-way bench harness: ractor_pool | cluster | single_threaded
+# Bench harness: ractor_pool | cluster | cluster_nate | single_threaded
 #
 # Usage: ./poc_bench_threeway.sh <variant> [run_idx]
-#   variant: ractor_pool | cluster | single_threaded
+#   variant: ractor_pool | cluster | cluster_nate | single_threaded
 #   run_idx: optional integer, used to suffix output files (default 1)
+#
+#   cluster       — 14 workers x 5 threads (parity with RactorPool's unit count)
+#   cluster_nate  — 8 workers x 5 threads (Speedshop "3-8 procs, 5 threads" rec)
 #
 # All variants serve poc_realistic_app.ru on 127.0.0.1:9292.
 
 set -u
-variant="${1:?variant: ractor_pool|cluster|single_threaded}"
+variant="${1:?variant: ractor_pool|cluster|cluster_nate|single_threaded}"
 run_idx="${2:-1}"
 port=9292
 n_warmup=2000
@@ -55,6 +58,12 @@ case "$variant" in
     ;;
   cluster)
     bundle exec puma -w 14 -t 5:5 -b "tcp://127.0.0.1:${port}" --quiet \
+      poc_realistic_app.ru \
+      > "$out_dir/${tag}.server.log" 2>&1 &
+    pid=$!
+    ;;
+  cluster_nate)
+    bundle exec puma -w 8 -t 5:5 -b "tcp://127.0.0.1:${port}" --quiet \
       poc_realistic_app.ru \
       > "$out_dir/${tag}.server.log" 2>&1 &
     pid=$!

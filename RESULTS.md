@@ -36,19 +36,30 @@ The app uses only stdlib (`json`, `digest`, `securerandom`) and closes
 over a single frozen constant — fully Ractor-safe with no source
 modifications needed.
 
-### Three configurations
+### Four configurations
 
-All three serve `poc_realistic_app.ru` on `127.0.0.1:9292` with no SSL.
+All four serve `poc_realistic_app.ru` on `127.0.0.1:9292` with no SSL.
 
 | label | command | shape |
 |-------|---------|-------|
 | **A. RactorPool** | `bundle exec puma -C poc_ractor_pool_config.rb poc_realistic_app.ru` | 1 process, 14 Ractors |
-| **B. Cluster** | `bundle exec puma -w 14 -t 5:5 poc_realistic_app.ru` | 14 forked workers × 5 threads |
+| **B. Cluster (parity)** | `bundle exec puma -w 14 -t 5:5 poc_realistic_app.ru` | 14 forked workers × 5 threads |
 | **C. Single threaded** | `bundle exec puma -t 14:14 poc_realistic_app.ru` | 1 process, 14 threads |
+| **D. Cluster (Speedshop)** | `bundle exec puma -w 8 -t 5:5 poc_realistic_app.ru` | 8 forked workers × 5 threads |
 
-A vs C is the apples-to-apples question (same process model, only
-the concurrency primitive differs). A vs B is the
-RactorPool-vs-production-default question.
+Three questions, three comparisons:
+
+- **A vs C** — same process model, only the concurrency primitive
+  differs. Isolates "Ractors vs threads" as such.
+- **A vs B** — RactorPool's unit count matched against an equivalently
+  parallel cluster (14 vs 14). Useful for "what's the ceiling
+  cluster gives me at the same parallelism budget?" but **not how
+  anyone actually deploys Puma**.
+- **A vs D** — the production-shaped comparison. Speedshop's
+  recommendation is 5 threads/worker and 3–8 workers per host
+  (Berkopec, *Configuring Puma, Unicorn, and Passenger for Maximum
+  Efficiency*). 8 workers × 5 threads is the upper bound of that
+  recommendation.
 
 ### Methodology
 
@@ -66,12 +77,13 @@ For each variant:
 
 | variant | RPS | p50 (ms) | p99 (ms) | p99.9 (ms) | idle RSS | mid-load RSS | KiB / RPS |
 |---------|----:|---------:|---------:|-----------:|---------:|-------------:|----------:|
-| **A. RactorPool**       | **6,561** |  7 | 17 |  52 |  39 MiB |  48 MiB |  7.5 |
-| **B. Cluster (14×5)**   | **7,514** |  6 | 10 |  38 | 266 MiB | 688 MiB | 93.7 |
-| **C. Single threaded**  | **1,267** | 39 | 43 |  53 |  35 MiB |  54 MiB | 43.6 |
+| **A. RactorPool**         | **6,561** |  7 | 17 |  52 |  39 MiB |  48 MiB |  7.5 |
+| **B. Cluster (14×5)**     | **7,514** |  6 | 10 |  38 | 266 MiB | 688 MiB | 93.7 |
+| **C. Single threaded**    | **1,267** | 39 | 43 |  53 |  35 MiB |  54 MiB | 43.6 |
+| **D. Cluster (8×5, Speedshop)** | **5,310** |  9 | 11 |  46 | 172 MiB | 401 MiB | 75.5 |
 
-Failed requests: 0 across all 9 runs. Per-run numbers are in
-`bench_out/{ractor_pool,cluster,single_threaded}.run{1,2,3}.summary.txt`.
+Failed requests: 0 across all 12 runs. Per-run numbers are in
+`bench_out/{ractor_pool,cluster,cluster_nate,single_threaded}.run{1,2,3}.summary.txt`.
 
 ### Q1 — Is Ractor parallelism actually faster than thread parallelism on a CPU-bound workload?
 
@@ -109,32 +121,43 @@ gap collapses from 5.2× to 1.7×. **The Ractor win is the GVL win**;
 on workloads where the GVL is not the bottleneck, there is no Ractor
 win to be had.
 
-### Q2 — RactorPool vs production default (cluster)
+### Q2 — RactorPool vs a Speedshop-tuned cluster
+
+This is the comparison that matters for deployments. Berkopec's
+recommendation for Puma is **5 threads per worker** (Amdahl's-law
+argument: web apps only parallelize I/O, ~10–25% of execution time)
+and **3–8 workers per host**, sized by RAM headroom rather than core
+count. We benchmark variant D at the upper bound: 8 workers × 5
+threads.
 
 ```
-A (RactorPool, 1 proc × 14 Ractors)        6,561 RPS,  48 MiB peak
-B (Cluster,    14 procs × 5 threads)       7,514 RPS, 688 MiB peak
-                                           ────────────────────────
-A reaches 87% of B's RPS at 1/14th the RSS.
+A (RactorPool, 1 proc × 14 Ractors)    6,561 RPS,  48 MiB peak
+D (Cluster,    8 procs × 5 threads)    5,310 RPS, 401 MiB peak
+                                       ────────────────────────
+A delivers 1.24× D's RPS at ~1/8 the RSS.
 ```
 
-Per-RPS memory cost is the cleanest number to put on a slide:
-**7.5 KiB/RPS for RactorPool vs 93.7 KiB/RPS for cluster** —
-RactorPool serves at ~1/12 the memory-per-throughput of the
-production default. On a 512 MiB container with the realistic app:
+Per-RPS memory cost on a slide:
+**7.5 KiB/RPS for RactorPool vs 75.5 KiB/RPS for the Speedshop
+cluster** — RactorPool serves at ~1/10 the memory-per-throughput of
+the production-shaped baseline. On a 512 MiB container with the
+realistic app:
 
-- Cluster (14×5): 688 MiB — **does not fit**.
-- Cluster trimmed to 7×5 to fit: ~half the RPS.
+- Cluster (8×5, Speedshop): 401 MiB — fits, but ~78% of the budget.
+- Cluster (14×5, max parallelism): 688 MiB — **does not fit**.
 - RactorPool: 48 MiB — fits 10× over.
 
-That's the case for Ractors as a deployment shape: comparable
-throughput to a forking webserver at memory budgets that current
-forking deployments cannot reach.
+A vs B (the parallelism-parity cluster): cluster reaches 7,514 RPS
+at 14 workers, which is ~15% above RactorPool's 6,561 — but at
+**688 MiB, well past Speedshop's RAM budget for typical app
+servers**. That comparison is useful as a ceiling, not as a
+deployable shape.
 
-p99 favours cluster (10 ms vs 17 ms), and p99.9 favours cluster
-(38 ms vs 52 ms). RactorPool's tail is wider, almost certainly
-because of the lack of a Reactor — every Ractor stalls on its own
-read instead of having a shared event loop drain headers.
+p99 favours both clusters over RactorPool (10–11 ms vs 17 ms), and
+p99.9 favours them too (38–46 ms vs 52 ms). RactorPool's tail is
+wider, almost certainly because of the missing Reactor — every
+Ractor stalls on its own read instead of having a shared event
+loop drain headers.
 
 ### Honest caveats
 
@@ -171,7 +194,7 @@ You don't get the first two without paying for the third.
 
 ```sh
 # Three runs each, ~1 minute per run.
-for v in ractor_pool cluster single_threaded; do
+for v in ractor_pool cluster cluster_nate single_threaded; do
   for i in 1 2 3; do
     ./poc_bench_threeway.sh $v $i
   done
