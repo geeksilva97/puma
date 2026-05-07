@@ -27,3 +27,8 @@ vendor/
 *.gem
 /lib/puma/puma_http11.rb
 /lib/puma/puma_http11.su
+
+# Ruby Conf 2026 experiment artifacts
+bench_out/
+ext/puma_http11/Makefile
+ext/puma_http11/*.dSYM/
