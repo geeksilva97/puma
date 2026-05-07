@@ -106,20 +106,21 @@ GVL, and on a workload that spends most of its time in Ruby
 under load drops from 39 ms (threads queuing on the GVL) to 7 ms
 (Ractors running in parallel).
 
-The same comparison on the IO-bound echo app (single-run sanity
-check, `bench_out/echo_*.run1.summary.txt`):
+The same A-vs-C comparison on an explicitly I/O-bound workload
+(`poc_io_bound_app.ru`, 20 ms `sleep` per request — see Q3 for the
+full table):
 
-| variant | echo RPS | realistic RPS |
-|---------|---------:|--------------:|
-| A. RactorPool      | 37,730 |  6,561 |
-| C. Single threaded | 22,618 |  1,267 |
-| ratio (A / C)      |  1.7×  |  5.2×  |
+| variant | I/O-bound RPS | realistic RPS |
+|---------|--------------:|--------------:|
+| A. RactorPool      |   642 |  6,561 |
+| C. Single threaded |   575 |  1,267 |
+| ratio (A / C)      | 1.12× |  5.2×  |
 
-When the work is IO-bound, threads are *fine* — the GVL gets released
-during the kernel write and threads parallelize at the OS level. The
-gap collapses from 5.2× to 1.7×. **The Ractor win is the GVL win**;
-on workloads where the GVL is not the bottleneck, there is no Ractor
-win to be had.
+`sleep` releases the GVL, so threads-in-one-process parallelize at
+the OS scheduler level just like Ractors do. The gap collapses from
+5.2× to 1.12×. **The Ractor win is the GVL win**; on workloads
+where the GVL is not the bottleneck, there is no Ractor win to be
+had.
 
 ### Q2 — RactorPool vs a Speedshop-tuned cluster
 
@@ -159,6 +160,55 @@ wider, almost certainly because of the missing Reactor — every
 Ractor stalls on its own read instead of having a shared event
 loop drain headers.
 
+### Q3 — What about I/O-bound workloads?
+
+Different workload, different story. `poc_io_bound_app.ru` does
+`sleep(20ms)` per request — a model for "Postgres query" or
+"internal HTTP API call." `sleep` releases the GVL, so OS threads
+parallelize at the scheduler level. This is the workload class
+the GVL doesn't bottleneck.
+
+| variant | RPS | p50 (ms) | p99 (ms) | mid-load RSS |
+|---------|----:|---------:|---------:|-------------:|
+| **A. RactorPool**               |   642 | 85 |  92 |  41 MiB |
+| **B. Cluster (14×5)**           | 1,937 | 25 |  41 | 463 MiB |
+| **C. Single threaded (14×)**    |   575 | 86 | 103 |  42 MiB |
+| **D. Cluster (8×5, Speedshop)** | 1,676 | 28 |  49 | 282 MiB |
+
+Single iteration each, 30k requests at 50 concurrency, 20 ms `sleep`.
+Per-run details in `bench_out/io_*.run1.summary.txt`.
+
+**The GVL falsifier (A vs C):** 642 vs 575 RPS = **1.12×.** On the
+realistic CPU-bound bench, the same comparison is **5.2×.** The
+collapse is the evidence: when the GVL is released during the I/O
+wait, ractor_pool and threads-in-one-process are equivalent. **The
+Ractor win is specifically the GVL win**, not a generic
+"Ractors are faster" effect.
+
+**The cluster surprise (A vs D):** D delivers **2.6× RactorPool's
+RPS** on this workload (1,676 vs 642). The reason is concurrency-
+per-worker: cluster has 8 procs × **5 threads each** = 40 concurrent
+execution units; RactorPool has 14 (one socket per Ractor,
+sequential within each Ractor). On I/O-bound work where 5 threads
+in a worker can all sleep concurrently, threads-per-worker is a
+force multiplier RactorPool doesn't get — and can't, without
+nesting an OS thread pool inside each Ractor (which would re-open
+all the Ractor-isolation problems we worked around to begin with).
+
+The honest framing for the talk:
+
+- **CPU-bound (the realistic bench):** Ractors win on RPS (1.24× D)
+  and dominate on RSS (1/8 D). The GVL is the bottleneck; removing
+  it pays.
+- **I/O-bound (this bench):** cluster wins on RPS (2.6× A) at the
+  cost of RSS (~7× A). The GVL is not the bottleneck;
+  threads-per-worker is the lever.
+
+A real Rails app sits between these: rendering and serialization
+are CPU-bound, the database round-trip is I/O-bound. Neither
+single-axis optimization wins outright. **What changes the
+calculation is the workload mix, not the primitive.**
+
 ### Honest caveats
 
 The RactorPool variant is feature-stripped relative to what a real
@@ -193,20 +243,23 @@ You don't get the first two without paying for the third.
 ### Repro
 
 ```sh
-# Three runs each, ~1 minute per run.
+# Realistic (CPU-bound) bench: 3 runs per variant, ~1 minute each.
 for v in ractor_pool cluster cluster_nate single_threaded; do
   for i in 1 2 3; do
     ./poc_bench_realistic.sh $v $i
   done
 done
-# Optional: echo-workload run (single iteration)
-for v in ractor_pool cluster single_threaded; do
-  ./poc_bench_echo.sh $v 1
+
+# I/O-bound bench (single iteration; tunable via IO_WAIT_MS env).
+for v in ractor_pool cluster cluster_nate single_threaded; do
+  ./poc_bench_io_bound.sh $v 1
 done
 ```
 
 Files:
-- `poc_realistic_app.ru` — the JSON+SHA+gsub workload.
-- `poc_bench_realistic.sh` — driver for the realistic three-way bench.
-- `poc_bench_echo.sh` — IO-bound counterpart.
-- `bench_out/*.summary.txt` — raw per-run numbers.
+- `poc_realistic_app.ru` — CPU-bound workload (JSON+SHA+gsub).
+- `poc_io_bound_app.ru` — I/O-bound workload (sleep-based downstream model).
+- `poc_bench_realistic.sh` — driver for the realistic four-way bench.
+- `poc_bench_io_bound.sh` — driver for the I/O-bound four-way bench.
+- `poc_verify.rb` — response-shape verifier called by the realistic bench.
+- `bench_out/*.summary.txt` — raw per-run numbers (gitignored).
