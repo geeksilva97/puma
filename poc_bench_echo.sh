@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Same as poc_bench_threeway.sh but serves poc_baseline_app.ru (echo "hello").
+# Same as poc_bench_realistic.sh but serves an echo "hello" Rack app.
 # Used to characterise the IO-bound end of the spectrum.
+#
+# NOTE: this script currently references poc_baseline_app.ru, which was
+# removed in the round-1 cleanup. Either restore that file or point this
+# at a small inline echo app before running.
 
 set -u
 variant="${1:?variant: ractor_pool|cluster|single_threaded}"

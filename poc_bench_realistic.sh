@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Bench harness: ractor_pool | cluster | cluster_nate | single_threaded
+# Bench harness for the realistic (CPU-bound) workload.
 #
-# Usage: ./poc_bench_threeway.sh <variant> [run_idx]
+# Usage: ./poc_bench_realistic.sh <variant> [run_idx]
 #   variant: ractor_pool | cluster | cluster_nate | single_threaded
 #   run_idx: optional integer, used to suffix output files (default 1)
 #

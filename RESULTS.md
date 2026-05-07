@@ -196,17 +196,17 @@ You don't get the first two without paying for the third.
 # Three runs each, ~1 minute per run.
 for v in ractor_pool cluster cluster_nate single_threaded; do
   for i in 1 2 3; do
-    ./poc_bench_threeway.sh $v $i
+    ./poc_bench_realistic.sh $v $i
   done
 done
 # Optional: echo-workload run (single iteration)
 for v in ractor_pool cluster single_threaded; do
-  ./poc_bench_threeway_echo.sh $v 1
+  ./poc_bench_echo.sh $v 1
 done
 ```
 
 Files:
 - `poc_realistic_app.ru` — the JSON+SHA+gsub workload.
-- `poc_bench_threeway.sh` — driver for the realistic three-way bench.
-- `poc_bench_threeway_echo.sh` — IO-bound counterpart.
+- `poc_bench_realistic.sh` — driver for the realistic three-way bench.
+- `poc_bench_echo.sh` — IO-bound counterpart.
 - `bench_out/*.summary.txt` — raw per-run numbers.

@@ -18,7 +18,7 @@
 #     middleware caching the first response and serving it to everyone).
 #
 # Exits 0 on success, non-zero on any failure. Used by
-# poc_bench_threeway.sh to fail fast before benching a broken server.
+# poc_bench_realistic.sh to fail fast before benching a broken server.
 
 require 'net/http'
 require 'uri'
