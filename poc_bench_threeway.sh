@@ -95,6 +95,20 @@ sleep 1
 idle_rss=$(sum_rss "$pid")
 echo "[$tag] pid=$pid idle_rss_kib=$idle_rss"
 
+# Verify the response actually matches the app's schema. Cheap insurance
+# against a broken server (truncated body, wrong content-type, cached
+# response) producing impressive-looking but meaningless RPS numbers.
+if ! ruby poc_verify.rb "$url" > "$out_dir/${tag}.verify.txt" 2>&1; then
+  echo "[$tag] ERROR: response verification failed:" >&2
+  cat "$out_dir/${tag}.verify.txt" >&2
+  kill -INT "$pid" 2>/dev/null || true
+  sleep 1
+  kill -9 "$pid" 2>/dev/null || true
+  lsof -ti tcp:${port} 2>/dev/null | xargs kill -9 2>/dev/null || true
+  exit 4
+fi
+echo "[$tag] verify: $(cat "$out_dir/${tag}.verify.txt")"
+
 # Mid-load sampler: record RSS halfway through the main run.
 (
   sleep 4
