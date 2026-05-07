@@ -3,6 +3,7 @@
 require 'stringio'
 
 require_relative 'thread_pool'
+require_relative 'ractor_pool'
 require_relative 'const'
 require_relative 'log_writer'
 require_relative 'events'
@@ -259,9 +260,27 @@ module Puma
 
       @status = :run
 
-      @thread_pool = ThreadPool.new(thread_name, options, server: self) do |processor, client|
-        process_client(processor, client)
-      end
+      # ---- Ruby Conf 2026 experiment: Ractor pool swap-in ----
+      # When `use_ractor_pool: true` (or PUMA_RACTOR_POOL=1) is set, we swap
+      # the ThreadPool for a RactorPool. The accept loop, binder, and listener
+      # logic stay the same. Per-request processing moves *into* each Ractor
+      # because Puma::Client / IOBuffer / the Rack app can't cross Ractor
+      # boundaries. See lib/puma/ractor_pool.rb DESIGN NOTES.
+      use_ractor_pool = options[:use_ractor_pool] || ENV['PUMA_RACTOR_POOL'] == '1'
+
+      @thread_pool =
+        if use_ractor_pool
+          ractor_opts = options.respond_to?(:to_h) ? options.to_h.dup : options.dup
+          ractor_opts[:ractor_rackup_path] ||= options[:rackup] || ENV['PUMA_RACTOR_RACKUP']
+          @log_writer.log "* Using RactorPool (experimental, Ruby Conf 2026 PoC)" if @log_writer.respond_to?(:log)
+          # Don't queue_requests through the Reactor; Ractors do their own read.
+          @queue_requests = false
+          RactorPool.new(thread_name, ractor_opts, server: self)
+        else
+          ThreadPool.new(thread_name, options, server: self) do |processor, client|
+            process_client(processor, client)
+          end
+        end
 
       if @queue_requests
         @reactor = Reactor.new(@io_selector_backend) { |c|
@@ -404,9 +423,14 @@ module Puma
                 end
                 drain += 1 if shutting_down?
 
-                client = new_client(io, sock)
-                client.send(addr_send_name, addr_value) if addr_value
-                pool << client
+                if pool.is_a?(RactorPool)
+                  # Skip Client wrapping; raw IO is what the Ractor accepts.
+                  pool << io
+                else
+                  client = new_client(io, sock)
+                  client.send(addr_send_name, addr_value) if addr_value
+                  pool << client
+                end
               end
             end
           rescue IOError, Errno::EBADF

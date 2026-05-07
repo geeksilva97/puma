@@ -1,0 +1,10 @@
+variant=cluster
+workload=echo
+run_idx=1
+rps=30252.30
+mean_latency_ms=1.653
+p50_latency_ms=2
+p99_latency_ms=2
+failed_requests=0
+idle_rss_kib=256592
+midload_rss_kib=451808

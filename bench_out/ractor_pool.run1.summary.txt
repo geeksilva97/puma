@@ -1,0 +1,13 @@
+variant=ractor_pool
+run_idx=1
+requests=30000
+concurrency=50
+rps=6561.19
+mean_latency_ms=7.621
+p50_latency_ms=7
+p99_latency_ms=17
+p999_latency_ms=49.069
+failed_requests=0
+idle_rss_kib=39616
+midload_rss_kib=47568
+postload_rss_kib=47664

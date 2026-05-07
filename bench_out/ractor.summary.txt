@@ -1,0 +1,10 @@
+variant=ractor
+workers_or_ractors=14
+requests=20000
+concurrency=50
+rps=33135.90
+mean_latency_ms=1.509
+p99_latency_ms=3
+failed_requests=0
+idle_rss_kib=16368
+loaded_rss_kib=39456

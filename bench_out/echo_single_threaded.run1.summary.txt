@@ -1,0 +1,10 @@
+variant=single_threaded
+workload=echo
+run_idx=1
+rps=22617.77
+mean_latency_ms=2.211
+p50_latency_ms=2
+p99_latency_ms=3
+failed_requests=0
+idle_rss_kib=33168
+midload_rss_kib=40640
