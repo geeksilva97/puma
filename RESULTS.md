@@ -57,9 +57,9 @@ Three questions, three comparisons:
   anyone actually deploys Puma**.
 - **A vs D** — the production-shaped comparison. Speedshop's
   recommendation is 5 threads/worker and 3–8 workers per host
-  (Berkopec, *Configuring Puma, Unicorn, and Passenger for Maximum
-  Efficiency*). 8 workers × 5 threads is the upper bound of that
-  recommendation.
+  (Berkopec, [*Configuring Puma, Unicorn, and Passenger for Maximum
+  Efficiency*](https://www.speedshop.co/blog/appserver/)). 8 workers
+  × 5 threads is the upper bound of that recommendation.
 
 ### Methodology
 
