@@ -209,6 +209,47 @@ are CPU-bound, the database round-trip is I/O-bound. Neither
 single-axis optimization wins outright. **What changes the
 calculation is the workload mix, not the primitive.**
 
+#### Note on pairing — the cluster surprise inverts at matched concurrency
+
+The A vs D / A vs B comparisons above hold the *primitive* axis fair
+(same workload, same machine, default flags) but pin RactorPool's
+unit count to `nprocessors` (14) while letting cluster carry
+`workers × threads` units (40 or 70). On I/O-bound work — where
+units mostly sleep — that's effectively comparing a 14-lane road to
+a 40- or 70-lane road and concluding the wider road moves more cars.
+
+If we re-run RactorPool with the unit count *paired to cluster's*:
+
+| pairing | concurrent units | RPS | p50 | mid-load RSS |
+|---------|----------------:|----:|----:|-------------:|
+| RactorPool, 70 Ractors  | 70 | **1,905** | 26 ms |  **50 MiB** |
+| B. Cluster (14×5)       | 70 | 1,937     | 25 ms |    463 MiB  |
+| RactorPool, 40 Ractors  | 40 | **1,781** | 26 ms |  **44 MiB** |
+| D. Cluster (8×5)        | 40 | 1,676     | 28 ms |    282 MiB  |
+
+Single iteration each, same 20 ms `sleep`, single-shot runs in
+`bench_out/io_ractor_pool.run{40,70}.summary.txt`.
+
+At matched concurrency, **RactorPool ties B on RPS (98%) and beats
+D by 6%**, while still costing **6–9× less RSS** in both pairings.
+The "cluster wins on I/O-bound" finding is real *only* under the
+core-count pinning; once you size RactorPool for the workload's
+concurrency budget the way Speedshop sizes cluster threads, the
+RPS gap closes and the RSS gap stays.
+
+Per-Ractor overhead is tiny on this app: going 14 → 70 Ractors adds
+~12 MiB total (≈170 KiB/Ractor), nowhere near the per-fork cost of
+adding cluster workers. So the natural deployment knob shifts from
+"how many forks?" (RAM-bounded) to "how many Ractors?" (much cheaper
+per unit, plausibly N_ractors > N_cores for I/O-heavy apps — the
+same logic as Speedshop's 5-threads-per-worker rule, applied one
+layer down).
+
+This doesn't invalidate Q3's GVL-falsifier finding (A vs C at the
+same 14 units = 1.12×, equivalence holds). It does sharpen the
+deployment story: **RactorPool beats cluster on RPS-per-RSS on
+both workload classes, when sized for the workload.**
+
 ### Honest caveats
 
 The RactorPool variant is feature-stripped relative to what a real

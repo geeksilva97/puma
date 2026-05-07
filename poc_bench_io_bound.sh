@@ -51,7 +51,7 @@ sum_rss() {
 case "$variant" in
   ractor_pool)
     PUMA_RACTOR_POOL=1 PUMA_RACTOR_RACKUP="$(pwd)/poc_io_bound_app.ru" \
-      RACTORS=14 PORT=$port \
+      RACTORS=${RACTORS:-14} PORT=$port \
       bundle exec puma -C poc_ractor_pool_config.rb poc_io_bound_app.ru \
       > "$out_dir/${tag}.server.log" 2>&1 &
     pid=$!
